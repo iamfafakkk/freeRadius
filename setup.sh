@@ -80,18 +80,8 @@ install_packages() {
         freeradius-config \
         mysql-server \
         mysql-client \
-        apache2 \
-        php \
-        php-mysql \
-        php-cli \
-        php-common \
-        php-curl \
-        php-mbstring \
-        php-xml \
-        git \
         wget \
         curl \
-        unzip \
         nano \
         htop \
         ufw
@@ -227,80 +217,8 @@ configure_firewall() {
     ufw allow 1812/udp  # Authentication
     ufw allow 1813/udp  # Accounting
     
-    # Allow HTTP and HTTPS for web management
-    ufw allow 80/tcp
-    ufw allow 443/tcp
-    
     ufw reload
     log "Firewall configured"
-}
-
-# Add PHP configuration function
-configure_php() {
-    log "Configuring PHP for daloRADIUS..."
-    
-    # Enable required PHP modules
-    a2enmod php7.4 || a2enmod php8.1 || a2enmod php
-    
-    # Restart Apache
-    systemctl restart apache2
-}
-
-# Enhanced daloRADIUS installation
-install_daloradius() {
-    log "Installing daloRADIUS web management interface..."
-    
-    cd /tmp
-    
-    # Remove old files if exist
-    rm -rf daloradius-master master.zip
-    
-    # Download latest daloRADIUS
-    if ! wget -q https://github.com/lirantal/daloRADIUS/archive/master.zip; then
-        error "Failed to download daloRADIUS"
-        return 1
-    fi
-    
-    unzip -q master.zip
-    
-    # Remove existing installation
-    rm -rf /var/www/html/daloradius
-    
-    mv daloradius-master /var/www/html/daloradius
-    
-    # Set permissions
-    chown -R www-data:www-data /var/www/html/daloradius/
-    find /var/www/html/daloradius/ -type f -exec chmod 644 {} \;
-    find /var/www/html/daloradius/ -type d -exec chmod 755 {} \;
-    
-    # Import daloRADIUS schema
-    log "Importing daloRADIUS database schema..."
-    mysql -u $DB_USER -p$DB_PASS $DB_NAME < /var/www/html/daloradius/contrib/db/fr2-mysql-daloradius-and-freeradius.sql 2>/dev/null || true
-    mysql -u $DB_USER -p$DB_PASS $DB_NAME < /var/www/html/daloradius/contrib/db/mysql-daloradius.sql 2>/dev/null || true
-    
-    # Configure daloRADIUS
-    tee /var/www/html/daloradius/library/daloradius.conf.php > /dev/null << EOF
-<?php
-\$configValues['CONFIG_DB_ENGINE'] = 'mysql';
-\$configValues['CONFIG_DB_HOST'] = 'localhost';
-\$configValues['CONFIG_DB_PORT'] = '3306';
-\$configValues['CONFIG_DB_USER'] = '$DB_USER';
-\$configValues['CONFIG_DB_PASS'] = '$DB_PASS';
-\$configValues['CONFIG_DB_NAME'] = '$DB_NAME';
-
-\$configValues['CONFIG_PATH_DALO_VARIABLE_DATA'] = '/var/www/html/daloradius/var';
-\$configValues['CONFIG_PATH_RADIUS_DICT'] = '/usr/share/freeradius';
-
-\$configValues['CONFIG_MAIL_SMTPADDR'] = '';
-\$configValues['CONFIG_MAIL_SMTPPORT'] = '25';
-?>
-EOF
-
-    # Create required directories
-    mkdir -p /var/www/html/daloradius/var
-    chown www-data:www-data /var/www/html/daloradius/var
-    
-    log "daloRADIUS installed successfully"
 }
 
 # Test FreeRADIUS - Fix the testing function
@@ -350,9 +268,6 @@ start_services() {
     systemctl start mysql
     systemctl enable mysql
     
-    systemctl start apache2
-    systemctl enable apache2
-    
     systemctl start freeradius
     systemctl enable freeradius
     
@@ -375,11 +290,6 @@ DATABASE CREDENTIALS:
 - Database User: $DB_USER
 - Database Password: $DB_PASS
 
-DALORADIUS WEB INTERFACE:
-- URL: http://$(curl -s ifconfig.me)/daloradius
-- Username: administrator
-- Password: radius
-
 SAMPLE USERS:
 - testuser / testpass
 - john / johnpass
@@ -388,11 +298,9 @@ IMPORTANT FILES:
 - Credentials: /root/freeradius-credentials.txt
 - Config: /etc/freeradius/3.0/
 - SQL Config: /etc/freeradius/3.0/mods-available/sql
-- daloRADIUS Config: /var/www/html/daloradius/library/daloradius.conf.php
 
 SECURITY REMINDER:
 - Change default passwords in production!
-- Setup SSL certificates for web access
 - Secure MySQL root password
 - Configure firewall rules properly
 ===========================================
@@ -413,7 +321,6 @@ display_info() {
     echo "Services Status:"
     echo "- FreeRADIUS: $(systemctl is-active freeradius)"
     echo "- MySQL: $(systemctl is-active mysql)"
-    echo "- Apache2: $(systemctl is-active apache2)"
     echo ""
     echo "Configuration Files:"
     echo "- Main config: /etc/freeradius/3.0/"
@@ -424,11 +331,6 @@ display_info() {
     echo "- Database: $DB_NAME"
     echo "- Username: $DB_USER"
     echo "- Password: $DB_PASS"
-    echo ""
-    echo "Web Management:"
-    echo "- daloRADIUS: http://$(curl -s ifconfig.me)/daloradius"
-    echo "- Username: administrator"
-    echo "- Password: radius"
     echo ""
     echo "Sample Users:"
     echo "- testuser / testpass"
@@ -443,7 +345,6 @@ display_info() {
     echo ""
     warning "🔐 IMPORTANT: Database credentials saved to /root/freeradius-credentials.txt"
     warning "📝 Remember to change default passwords in production!"
-    warning "🔒 Configure SSL certificates for secure web access!"
     echo ""
     info "🎉 Installation completed! Your FreeRADIUS server is ready to use."
 }
@@ -459,7 +360,6 @@ main() {
     configure_mysql
     configure_freeradius
     configure_firewall
-    install_daloradius
     create_sample_users
     start_services
     save_credentials
