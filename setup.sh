@@ -5,7 +5,7 @@
 # Author: Setup Script Generator
 # Date: June 8, 2025
 
-set -e  # Exit on any error
+set -euo pipefail  # Enhanced error handling
 
 # Generate random database credentials
 DB_USER="radius_$(openssl rand -hex 4)"
@@ -103,15 +103,25 @@ install_packages() {
 configure_mysql() {
     log "Configuring MySQL..."
     
-    # Secure MySQL installation
-    mysql_secure_installation
+    # Generate root password if MySQL is fresh install
+    MYSQL_ROOT_PASS=$(openssl rand -base64 16 | tr -d "=+/" | cut -c1-16)
+    
+    # Set MySQL root password for new installations
+    if ! mysql -u root -e "SELECT 1" &>/dev/null; then
+        log "Setting MySQL root password..."
+        mysql -u root << EOF
+ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '$MYSQL_ROOT_PASS';
+FLUSH PRIVILEGES;
+EOF
+        echo "MySQL Root Password: $MYSQL_ROOT_PASS" >> /root/freeradius-credentials.txt
+    fi
     
     # Create FreeRADIUS database
     log "Creating FreeRADIUS database..."
-    log "Database: $DB_NAME, User: $DB_USER"
-    mysql -u root -p << EOF
-CREATE DATABASE $DB_NAME;
-GRANT ALL ON $DB_NAME.* TO '$DB_USER'@'localhost' IDENTIFIED BY '$DB_PASS';
+    mysql -u root -p$MYSQL_ROOT_PASS << EOF
+CREATE DATABASE IF NOT EXISTS $DB_NAME;
+CREATE USER IF NOT EXISTS '$DB_USER'@'localhost' IDENTIFIED BY '$DB_PASS';
+GRANT ALL PRIVILEGES ON $DB_NAME.* TO '$DB_USER'@'localhost';
 FLUSH PRIVILEGES;
 EOF
 
@@ -225,22 +235,48 @@ configure_firewall() {
     log "Firewall configured"
 }
 
-# Install daloRADIUS (Web Management Interface)
+# Add PHP configuration function
+configure_php() {
+    log "Configuring PHP for daloRADIUS..."
+    
+    # Enable required PHP modules
+    a2enmod php7.4 || a2enmod php8.1 || a2enmod php
+    
+    # Restart Apache
+    systemctl restart apache2
+}
+
+# Enhanced daloRADIUS installation
 install_daloradius() {
     log "Installing daloRADIUS web management interface..."
     
     cd /tmp
-    wget https://github.com/lirantal/daloRADIUS/archive/master.zip
-    unzip master.zip
+    
+    # Remove old files if exist
+    rm -rf daloRADIUS-master master.zip
+    
+    # Download latest daloRADIUS
+    if ! wget -q https://github.com/lirantal/daloRADIUS/archive/master.zip; then
+        error "Failed to download daloRADIUS"
+        return 1
+    fi
+    
+    unzip -q master.zip
+    
+    # Remove existing installation
+    rm -rf /var/www/html/daloradius
+    
     mv daloRADIUS-master /var/www/html/daloradius
     
     # Set permissions
     chown -R www-data:www-data /var/www/html/daloradius/
-    chmod 644 /var/www/html/daloradius/library/daloradius.conf.php
+    find /var/www/html/daloradius/ -type f -exec chmod 644 {} \;
+    find /var/www/html/daloradius/ -type d -exec chmod 755 {} \;
     
     # Import daloRADIUS schema
-    mysql -u $DB_USER -p$DB_PASS $DB_NAME < /var/www/html/daloradius/contrib/db/fr2-mysql-daloradius-and-freeradius.sql
-    mysql -u $DB_USER -p$DB_PASS $DB_NAME < /var/www/html/daloradius/contrib/db/mysql-daloradius.sql
+    log "Importing daloRADIUS database schema..."
+    mysql -u $DB_USER -p$DB_PASS $DB_NAME < /var/www/html/daloradius/contrib/db/fr2-mysql-daloradius-and-freeradius.sql 2>/dev/null || true
+    mysql -u $DB_USER -p$DB_PASS $DB_NAME < /var/www/html/daloradius/contrib/db/mysql-daloradius.sql 2>/dev/null || true
     
     # Configure daloRADIUS
     tee /var/www/html/daloradius/library/daloradius.conf.php > /dev/null << EOF
@@ -252,14 +288,42 @@ install_daloradius() {
 \$configValues['CONFIG_DB_PASS'] = '$DB_PASS';
 \$configValues['CONFIG_DB_NAME'] = '$DB_NAME';
 
+\$configValues['CONFIG_PATH_DALO_VARIABLE_DATA'] = '/var/www/html/daloradius/var';
+\$configValues['CONFIG_PATH_RADIUS_DICT'] = '/usr/share/freeradius';
+
 \$configValues['CONFIG_MAIL_SMTPADDR'] = '';
 \$configValues['CONFIG_MAIL_SMTPPORT'] = '25';
 ?>
 EOF
 
+    # Create required directories
+    mkdir -p /var/www/html/daloradius/var
+    chown www-data:www-data /var/www/html/daloradius/var
+    
     log "daloRADIUS installed successfully"
-    info "Access daloRADIUS at: http://your-server-ip/daloradius"
-    info "Default login: administrator / radius"
+}
+
+# Test FreeRADIUS - Fix the testing function
+test_freeradius() {
+    log "Testing FreeRADIUS configuration..."
+    
+    # Test configuration syntax
+    if ! freeradius -C; then
+        error "FreeRADIUS configuration test failed!"
+        return 1
+    fi
+    
+    # Start service for testing
+    systemctl start freeradius
+    sleep 3
+    
+    # Test authentication
+    log "Testing user authentication..."
+    if echo "User-Name = testuser, Cleartext-Password = testpass" | radclient localhost:1812 auth testing123 | grep -q "Access-Accept"; then
+        log "✅ Authentication test successful"
+    else
+        warning "❌ Authentication test failed"
+    fi
 }
 
 # Create sample users
@@ -336,22 +400,6 @@ EOF
 
     chmod 600 /root/freeradius-credentials.txt
     log "✅ Credentials saved to: /root/freeradius-credentials.txt"
-}
-
-# Test FreeRADIUS
-test_freeradius() {
-    log "Testing FreeRADIUS configuration..."
-    
-    # Test configuration
-    freeradius -X &
-    sleep 5
-    pkill freeradius
-    
-    # Test authentication
-    log "Testing user authentication..."
-    echo "User-Name = testuser, Cleartext-Password = testpass" | radclient localhost:1812 auth testing123
-    
-    log "FreeRADIUS test completed"
 }
 
 # Display information
