@@ -1,205 +1,110 @@
-# FreeRADIUS 3 Setup untuk Ubuntu VPS
+# FreeRADIUS 3 Setup Script
 
-Script ini akan menginstal dan mengkonfigurasi FreeRADIUS 3 pada Ubuntu VPS dengan fitur lengkap termasuk web management interface (daloRADIUS).
+Skrip instalasi otomatis untuk FreeRADIUS 3 pada Ubuntu VPS dengan antarmuka web daloRADIUS.
 
-## Fitur yang Diinstal
+## Persyaratan
 
-- **FreeRADIUS 3** - Server RADIUS utama
-- **MySQL Database** - Backend database untuk menyimpan user dan konfigurasi
-- **daloRADIUS** - Web interface untuk management FreeRADIUS
-- **Apache2** - Web server untuk daloRADIUS
-- **PHP** - Runtime untuk daloRADIUS
-- **UFW Firewall** - Konfigurasi keamanan dasar
-
-## Persyaratan Sistem
-
-- Ubuntu 18.04, 20.04, atau 22.04 LTS
-- Minimal 1GB RAM
-- Minimal 10GB storage
-- Root access atau user dengan sudo privileges
+- Ubuntu Server (18.04, 20.04, 22.04, atau lebih baru)
+- Akses root atau sudo
 - Koneksi internet yang stabil
 
-## Cara Penggunaan
+## Cara Menjalankan
 
-### 1. Upload ke VPS
-
-Upload file `setup.sh` ke VPS Ubuntu Anda:
+### 1. Download atau Clone Repository
 
 ```bash
-# Dari komputer lokal (macOS)
-scp setup.sh user@your-vps-ip:~/
+# Download file setup.sh ke server Ubuntu Anda
+wget https://raw.githubusercontent.com/iamfafakkk/freeRadius/refs/heads/main/setup.sh
+# atau
+curl -O https://raw.githubusercontent.com/iamfafakkk/freeRadius/refs/heads/main/setup.sh
 ```
 
-### 2. Login ke VPS
-
-```bash
-ssh user@your-vps-ip
-```
-
-### 3. Buat file executable dan jalankan sebagai root
+### 2. Berikan Permission Execute
 
 ```bash
 chmod +x setup.sh
-chmod +x maintenance.sh
-chmod +x user-management.sh
-chmod +x show-info.sh
+```
+
+### 3. Jalankan Script
+
+```bash
 sudo ./setup.sh
 ```
 
-### 4. Ikuti prompts
+## Yang Akan Diinstal
 
-Script akan meminta input untuk:
-- MySQL root password (saat mysql_secure_installation)
-- Konfirmasi beberapa pengaturan
+- **FreeRADIUS 3** - Server RADIUS utama
+- **MySQL** - Database server
+- **Apache2** - Web server
+- **PHP** - Runtime untuk aplikasi web
+- **daloRADIUS** - Antarmuka web untuk manajemen FreeRADIUS
 
 ## Setelah Instalasi
 
-### Melihat Informasi Kredensial
-
-```bash
-# Lihat semua informasi instalasi
-./show-info.sh
-
-# Atau lihat file kredensial langsung
-cat /root/freeradius-credentials.txt
-```
-
-### Akses Web Management (daloRADIUS)
-
-- URL: `http://your-vps-ip/daloradius`
+### Akses Web Management
+- URL: `http://IP-SERVER-ANDA/daloradius`
 - Username: `administrator`
 - Password: `radius`
 
-### Default Database Credentials
+### User Testing
+Script akan membuat 2 user contoh:
+- `testuser` / `testpass`
+- `john` / `johnpass`
 
-Database credentials akan di-generate secara random saat instalasi untuk keamanan:
-- Database: `radius_XXXXXX` (random)
-- Username: `radius_XXXXXXXX` (random)
-- Password: `XXXXXXXXXXXXXXXX` (random 16 karakter)
-
-**Kredensial akan disimpan di: `/root/freeradius-credentials.txt`**
-
-### Sample Users yang Dibuat
-
-- Username: `testuser`, Password: `testpass`
-- Username: `john`, Password: `johnpass`
+### File Kredensial
+Semua informasi login disimpan di: `/root/freeradius-credentials.txt`
 
 ## Testing Koneksi
 
-### Test dari command line:
-
 ```bash
-# Test authentication
+# Test konfigurasi
+sudo freeradius -X
+
+# Test autentikasi user
 echo "User-Name = testuser, Cleartext-Password = testpass" | radclient localhost:1812 auth testing123
 ```
 
-### Test dari aplikasi lain:
+## Troubleshooting
 
-- Server: `your-vps-ip`
-- Port: `1812` (Authentication), `1813` (Accounting)
-- Secret: `testing123`
-
-## File Konfigurasi Penting
-
-- Main config: `/etc/freeradius/3.0/`
-- Clients: `/etc/freeradius/3.0/clients.conf`
-- SQL config: `/etc/freeradius/3.0/mods-available/sql`
-- daloRADIUS config: `/var/www/html/daloradius/library/daloradius.conf.php`
-
-## Command Berguna
-
+### Cek Status Service
 ```bash
-# Restart FreeRADIUS
-systemctl restart freeradius
+sudo systemctl status freeradius
+sudo systemctl status mysql
+sudo systemctl status apache2
+```
 
-# Cek status service
-systemctl status freeradius
-systemctl status mysql
-systemctl status apache2
+### Restart Service
+```bash
+sudo systemctl restart freeradius
+sudo systemctl restart mysql
+sudo systemctl restart apache2
+```
 
-# Debug mode (untuk troubleshooting)
-freeradius -X
-
-# Lihat log
-tail -f /var/log/freeradius/radius.log
-
-# Test konfigurasi
-freeradius -C
+### Lihat Log
+```bash
+sudo tail -f /var/log/freeradius/radius.log
 ```
 
 ## Keamanan
 
-⚠️ **PENTING untuk Production:**
+⚠️ **PENTING**: Setelah instalasi, pastikan untuk:
 
-1. **Ganti password default:**
-   - MySQL radius user password
-   - daloRADIUS admin password
-   - RADIUS shared secrets
-
-2. **Setup SSL certificate:**
-   ```bash
-   apt install certbot python3-certbot-apache
-   certbot --apache
-   ```
-
-3. **Konfigurasi firewall tambahan:**
-   ```bash
-   # Batasi akses SSH hanya dari IP tertentu
-   ufw delete allow ssh
-   ufw allow from YOUR_IP to any port 22
-   
-   # Batasi akses daloRADIUS
-   ufw allow from YOUR_IP to any port 80
-   ufw allow from YOUR_IP to any port 443
-   ```
-
-4. **Update sistem secara berkala:**
-   ```bash
-   apt update && apt upgrade -y
-   ```
-
-## Troubleshooting
-
-### FreeRADIUS tidak start:
-```bash
-freeradius -X  # Debug mode untuk lihat error
-```
-
-### Web interface tidak bisa diakses:
-```bash
-systemctl status apache2
-ufw status  # Cek firewall
-```
-
-### Database connection error:
-```bash
-mysql -u radius -p  # Test koneksi database
-```
-
-### Port sudah digunakan:
-```bash
-netstat -tulpn | grep :1812
-netstat -tulpn | grep :1813
-```
+1. Ganti password default di daloRADIUS
+2. Setup SSL certificate untuk akses HTTPS
+3. Ganti password MySQL root
+4. Konfigurasi firewall sesuai kebutuhan
+5. Hapus atau ganti user testing
 
 ## Support
 
-Jika ada masalah:
-1. Cek log: `tail -f /var/log/freeradius/radius.log`
-2. Run debug mode: `freeradius -X`
-3. Cek status service: `systemctl status freeradius`
+Jika mengalami masalah:
+1. Cek file log di `/var/log/freeradius/`
+2. Verifikasi konfigurasi dengan `sudo freeradius -C`
+3. Pastikan semua service berjalan dengan `systemctl status`
 
-## Struktur File yang Dibuat
+## Lokasi File Penting
 
-```
-/etc/freeradius/3.0/          # Konfigurasi FreeRADIUS
-├── clients.conf              # Konfigurasi NAS clients
-├── mods-available/sql        # Konfigurasi SQL module
-└── sites-available/default   # Site konfigurasi
-
-/var/www/html/daloradius/     # Web management interface
-├── library/daloradius.conf.php  # Konfigurasi database
-└── contrib/db/               # SQL schema files
-```
-
-Script ini sudah ditest dan siap untuk production dengan penyesuaian keamanan yang diperlukan.
+- Konfigurasi FreeRADIUS: `/etc/freeradius/3.0/`
+- Konfigurasi daloRADIUS: `/var/www/html/daloradius/`
+- Database credentials: `/root/freeradius-credentials.txt`
+- Web directory: `/var/www/html/daloradius/`
