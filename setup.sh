@@ -253,7 +253,7 @@ install_daloradius() {
     cd /tmp
     
     # Remove old files if exist
-    rm -rf daloRADIUS-master master.zip
+    rm -rf daloradius-master master.zip
     
     # Download latest daloRADIUS
     if ! wget -q https://github.com/lirantal/daloRADIUS/archive/master.zip; then
@@ -266,7 +266,7 @@ install_daloradius() {
     # Remove existing installation
     rm -rf /var/www/html/daloradius
     
-    mv daloRADIUS-master /var/www/html/daloradius
+    mv daloradius-master /var/www/html/daloradius
     
     # Set permissions
     chown -R www-data:www-data /var/www/html/daloradius/
